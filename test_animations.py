@@ -13,6 +13,10 @@ def test_animation_logic():
     app = QApplication(sys.argv)
     window = MainWindow()
     
+    # Check path input default
+    assert window.path_input.currentText() == "/api/v2/events"
+    print("SUCCESS: Default path is /api/v2/events")
+
     # Check if play_anim is in handle_event context
     # We can't easily test exec() without side effects, but we can check if it's called
     window.play_animation = MagicMock()

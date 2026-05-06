@@ -7,8 +7,7 @@ async def mock_mixitup_server(host='localhost', port=8911):
     print(f"Starting mock MixItUp server on {host}:{port}...")
     async def handler(websocket, path):
         print(f"Client connected to path: {path}")
-        if path != "/api/v2/events":
-            print(f"WARNING: Unexpected path {path}")
+        # Accept any path for testing flexibility, but log what it is
         try:
             # Send a few mock events
             events = [

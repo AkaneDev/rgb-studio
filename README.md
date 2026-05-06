@@ -26,7 +26,10 @@ A Python GUI application that allows you to trigger custom Python code when some
    ```
 2. Ensure MixItUp is running and the Developer API (v2) is enabled.
 3. (Optional) Ensure iCUE is running and the SDK is enabled. Click **Connect iCUE** in the app.
-4. Enter the **IP Address** (usually `localhost`) and **Port** (default is `8911`) for MixItUp. The app connects to the v2 API path `/api/v2/events`.
+4. Enter the **IP Address** (usually `localhost`) and **Port** (default is `8911`) for MixItUp. 
+   - Select or enter the **Base Path**. Default is `/api/v2/events`.
+   - If you get a **404 error**, try `/api/v1/events` or `/events`. 
+   - Ensure the Developer API is enabled in MixItUp (Services -> Developer API -> Connect).
 5. Define the Python code you want to run for each event in the "Event Actions" section.
    - You can use the variable `{user}` in your code to refer to the user who triggered the event.
    - You can use `sdk` to control iCUE (e.g., `sdk.set_led_colors(...)`).
@@ -41,8 +44,9 @@ A Python GUI application that allows you to trigger custom Python code when some
 
 ## How it works
 
-- The app connects to MixItUp's **Developer API v2 WebSocket** (`ws://host:port/api/v2/events`).
+- The app connects to MixItUp's **Developer API WebSocket**.
 - It listens for event notifications pushed by MixItUp.
+- If the default `/api/v2/events` path returns a 404, the user can switch to `/api/v1/events` or `/events` via the GUI.
 - When a Follow, Subscription, or Resubscription event occurs, the app executes the custom Python code provided in the GUI using `exec()`.
 - Animations are stored in `animations.json` and played in separate threads when triggered.
 - Logs are displayed in the application window to help you debug and track events.

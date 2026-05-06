@@ -380,15 +380,16 @@ class MixItUpWorker(QObject):
     event_signal = pyqtSignal(str, str) # event_type, user_name
     finished_signal = pyqtSignal()
     
-    def __init__(self, host, port):
+    def __init__(self, host, port, path="/api/v2/events"):
         super().__init__()
         self.host = host
         self.port = port
+        self.path = path
         self.running = False
 
     async def run_mixitup(self):
-        uri = f"ws://{self.host}:{self.port}/api/v2/events"
-        self.log_signal.emit(f"Connecting to MixItUp v2 at {uri}...")
+        uri = f"ws://{self.host}:{self.port}{self.path}"
+        self.log_signal.emit(f"Connecting to MixItUp at {uri}...")
         try:
             async with websockets.connect(uri) as websocket:
                 self.log_signal.emit("Connected to MixItUp!")
@@ -432,7 +433,11 @@ class MixItUpWorker(QObject):
                         self.log_signal.emit(f"Message Error: {str(e)}")
                         break
         except Exception as e:
-            self.log_signal.emit(f"MixItUp Connection Error: {str(e)}")
+            error_msg = str(e)
+            if "404" in error_msg:
+                self.log_signal.emit(f"Connection Error (404): The path '{self.path}' was not found. Please check if the Developer API is enabled in MixItUp and try a different path (like /api/v1/events).")
+            else:
+                self.log_signal.emit(f"MixItUp Connection Error: {error_msg}")
         finally:
             self.running = False
             self.finished_signal.emit()
@@ -466,7 +471,12 @@ class MainWindow(QMainWindow):
         
         conn_layout.addRow("IP Address / Host:", self.host_input)
         conn_layout.addRow("Port:", self.port_input)
-        conn_layout.addRow("Base Path:", QLabel("/api/v2/events"))
+        
+        self.path_input = QComboBox()
+        self.path_input.setEditable(True)
+        self.path_input.addItems(["/api/v2/events", "/api/v1/events", "/api/events", "/events"])
+        conn_layout.addRow("Base Path:", self.path_input)
+        
         conn_group.setLayout(conn_layout)
         layout.addWidget(conn_group)
 
@@ -604,15 +614,16 @@ class MainWindow(QMainWindow):
     def start_listening(self):
         host = self.host_input.text()
         port = self.port_input.text()
+        path = self.path_input.currentText()
         
-        if not host or not port:
+        if not host or not port or not path:
             self.log("Error: Please fill in connection details.")
             return
         
         self.start_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
         
-        self.worker = MixItUpWorker(host, port)
+        self.worker = MixItUpWorker(host, port, path)
         self.worker_thread = QThread()
         self.worker.moveToThread(self.worker_thread)
         
