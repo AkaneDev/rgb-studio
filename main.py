@@ -196,6 +196,54 @@ class AnimationEditorDialog(QDialog):
         
         top_layout.addLayout(kb_layout)
 
+    def load_animation(self, row):
+        self.frame_list.clear()
+        if row < 0: return
+        name = self.anim_list.item(row).text()
+        frames = self.animations.get(name, [])
+        for i in range(len(frames)):
+            self.frame_list.addItem(f"Frame {i+1}")
+        if frames:
+            self.frame_list.setCurrentRow(0)
+
+    def add_animation(self):
+        from PyQt6.QtWidgets import QInputDialog
+        name, ok = QInputDialog.getText(self, "New Animation", "Enter animation name:")
+        if ok and name:
+            if name not in self.animations:
+                self.animations[name] = []
+                self.anim_list.addItem(name)
+                self.anim_list.setCurrentRow(self.anim_list.count() - 1)
+            else:
+                QMessageBox.warning(self, "Warning", "Animation already exists.")
+
+    def delete_animation(self):
+        curr = self.anim_list.currentItem()
+        if curr:
+            name = curr.text()
+            del self.animations[name]
+            self.anim_list.takeItem(self.anim_list.row(curr))
+            self.frame_list.clear()
+
+    def add_frame(self):
+        curr_anim = self.anim_list.currentItem()
+        if not curr_anim:
+            QMessageBox.warning(self, "Warning", "Select an animation first.")
+            return
+        name = curr_anim.text()
+        new_frame = {"leds": {}, "duration": 0.1}
+        self.animations[name].append(new_frame)
+        self.frame_list.addItem(f"Frame {len(self.animations[name])}")
+        self.frame_list.setCurrentRow(self.frame_list.count() - 1)
+
+    def delete_frame(self):
+        curr_anim = self.anim_list.currentItem()
+        curr_frame_idx = self.frame_list.currentRow()
+        if curr_anim and curr_frame_idx >= 0:
+            name = curr_anim.text()
+            self.animations[name].pop(curr_frame_idx)
+            self.load_animation(self.anim_list.currentRow())
+
     def toggle_led_selection(self, led_id, checked):
         if checked:
             self.selected_leds.add(led_id)
@@ -263,7 +311,9 @@ class AnimationEditorDialog(QDialog):
 
     def load_frame(self, row):
         if row < 0: return
-        name = self.anim_list.currentItem().text()
+        curr_anim = self.anim_list.currentItem()
+        if not curr_anim: return
+        name = curr_anim.text()
         frame = self.animations[name][row]
         self.duration_spin.setValue(frame.get("duration", 0.1))
         self.selected_leds.clear()
