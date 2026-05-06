@@ -1,6 +1,5 @@
-websockets
 PyQt6
-python-dotenv
 aiohttp
 cuesdk
 pynput
+python-dotenv

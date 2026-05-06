@@ -1,15 +1,13 @@
-# MixItUp v2 Event Trigger GUI
+# RGB Studio - Webhook Event Trigger
 
-A Python GUI application that allows you to trigger custom Python code when someone follows, subscribes, or resubscribes via the MixItUp v2 Developer API.
+A Python GUI application that triggers custom Python code and keyboard animations in response to HTTP POST requests (Webhooks).
 
 ## Requirements
 
 - Python 3.7+
-- [MixItUp App](https://mixitupapp.com/) installed and running.
 - [Corsair iCUE](https://www.corsair.com/icue) (optional, for keyboard lighting).
-- Developer API enabled in MixItUp (Services -> Developer API -> Connect).
 - SDK enabled in iCUE settings (Settings -> Software and Games -> Enable SDK).
-- Dependencies: `websockets`, `PyQt6`, `python-dotenv`, `aiohttp`, `cuesdk`, `pynput`
+- Dependencies: `PyQt6`, `aiohttp`, `cuesdk`, `pynput`
 
 ## Installation
 
@@ -24,34 +22,38 @@ A Python GUI application that allows you to trigger custom Python code when some
    ```bash
    python main.py
    ```
-2. Ensure MixItUp is running and the Developer API (v2) is enabled.
-3. (Optional) Ensure iCUE is running and the SDK is enabled. Click **Connect iCUE** in the app.
-4. Enter the **IP Address** (usually `localhost`) and **Port** (default is `8911`) for MixItUp. 
-   - Select or enter the **Base Path**. Default is `/api/v2/events`.
-   - If you get a **404 error**, try `/api/v1/events` or `/events`. 
-   - Ensure the Developer API is enabled in MixItUp (Services -> Developer API -> Connect).
-5. Define the Python code you want to run for each event in the "Event Actions" section.
-   - You can use the variable `{user}` in your code to refer to the user who triggered the event.
-   - You can use `sdk` to control iCUE (e.g., `sdk.set_led_colors(...)`).
-   - You can use `kb` and `Key` to simulate keyboard presses (e.g., `kb.press(Key.space); kb.release(Key.space)`).
-   - You can use `play_anim("animation_name")` to trigger a custom keyboard animation.
-   - Example: `print(f"{user} just followed!"); play_anim("welcome_blink")`
-6. Create **Custom Events** or use the **Webhook Server**:
-   - The app hosts a Webhook server (default `http://localhost:8080/`).
-   - You can send a POST request to this URL from MixItUp (using a "Web Request" action) with a JSON body like: `{"event": "my_custom_event", "user": "$username"}`.
-   - In the "Custom Events" section of the GUI, add an event named `my_custom_event` and define its Python code.
-7. Create animations using the **Animation Editor**:
-   - Click the "Animation Editor" button.
-   - Add a new animation and add frames to it.
-   - For each frame, set the duration and the color for the LEDs.
-8. Click **Start Listening**.
+2. (Optional) Ensure iCUE is running and the SDK is enabled. Click **Connect iCUE** in the app.
+3. Configure the **Webhook Server Configuration** (Host and Port). Default is `0.0.0.0:8080`.
+4. Click **Start Server**.
+5. Define actions for standard events (**Follow**, **Sub**, **Resub**) or create **Custom Events**.
+6. Trigger events by sending a POST request to your server:
+   - **Root URL**: `http://localhost:8080/`
+     - Body (JSON): `{"event": "follow", "user": "JohnDoe"}`
+     - Body (Form): `event=follow&user=JohnDoe`
+   - **Specific Event URL**: `http://localhost:8080/event/follow`
+     - Body (Plain Text): `JohnDoe` (will be treated as the username)
+     - Body (JSON): `{"user": "JohnDoe"}`
+7. Use the **Animation Editor** to create complex RGB patterns.
+8. Use the **KeySim (Virtual Keyboard)** to preview animations without physical hardware.
+
+## Available Variables in Python Actions
+
+- `user`: The username extracted from the POST request.
+- `sdk`: The Corsair iCUE SDK session (if connected).
+- `kb`: `pynput.keyboard.Controller` for simulating key presses.
+- `Key`: `pynput.keyboard.Key` constants.
+- `play_anim(name)`: Function to trigger a saved animation.
+
+## Example Action
+
+```python
+print(f"Welcome {user}!"); play_anim("RainbowWave"); kb.press(Key.f1); kb.release(Key.f1)
+```
 
 ## How it works
 
-- The app connects to MixItUp's **Developer API WebSocket**.
-- It listens for event notifications pushed by MixItUp.
-- It also hosts an HTTP Webhook server to receive custom events via POST requests.
-- If the default `/api/v2/events` path returns a 404, the user can switch to `/api/v1/events` or `/events` via the GUI.
-- When a Follow, Subscription, or Resubscription event occurs, the app executes the custom Python code provided in the GUI using `exec()`.
-- Animations are stored in `animations.json` and played in separate threads when triggered.
-- Logs are displayed in the application window to help you debug and track events.
+- The app hosts an `aiohttp` server that listens for POST requests.
+- When a request is received, it extracts the event type and username.
+- It matches the event type against the defined "Standard Event Actions" or "Custom Events".
+- It executes the corresponding Python code in a background thread to keep the GUI responsive.
+- Animations are stored in `animations.json` and custom events in `custom_events.json`.

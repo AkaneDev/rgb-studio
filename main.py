@@ -1,7 +1,6 @@
 import sys
 import asyncio
 import json
-import websockets
 import time
 import aiohttp
 from aiohttp import web
@@ -18,6 +17,21 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QComboBox, QMessageBox, QGridLayout)
 from PyQt6.QtCore import pyqtSignal, QObject, QThread, Qt, QTimer
 from PyQt6.QtGui import QColor, QPainter, QBrush, QPen
+
+class CodeExecutor(QThread):
+    log_signal = pyqtSignal(str)
+    
+    def __init__(self, code, context):
+        super().__init__()
+        self.code = code
+        self.context = context
+
+    def run(self):
+        try:
+            exec(self.code, self.context)
+            self.log_signal.emit(f"Executed action successfully")
+        except Exception as e:
+            self.log_signal.emit(f"Action Execution Error: {str(e)}")
 
 class AnimationPlayer(QThread):
     def __init__(self, animation_data, sdk=None, keysim=None):
@@ -454,75 +468,8 @@ class WebhookWorker(QObject):
             self.running = False
             self.finished_signal.emit()
 
-    def stop(self):
-        self.running = False
-
-class MixItUpWorker(QObject):
-    log_signal = pyqtSignal(str)
-    event_signal = pyqtSignal(str, str) # event_type, user_name
-    finished_signal = pyqtSignal()
-    
-    def __init__(self, host, port, path="/api/v2/events"):
-        super().__init__()
-        self.host = host
-        self.port = port
-        self.path = path
-        self.running = False
-
-    async def run_mixitup(self):
-        uri = f"ws://{self.host}:{self.port}{self.path}"
-        self.log_signal.emit(f"Connecting to MixItUp at {uri}...")
-        try:
-            async with websockets.connect(uri) as websocket:
-                self.log_signal.emit("Connected to MixItUp!")
-                self.running = True
-                while self.running:
-                    try:
-                        message = await asyncio.wait_for(websocket.recv(), timeout=1.0)
-                        data = json.loads(message)
-                        
-                        # Expected format based on typical MixItUp Event Notifications
-                        # Usually it contains "Event" or "Type" and "User" details
-                        event_type_raw = data.get("Type", data.get("Event", "unknown")).lower()
-                        
-                        # Map MixItUp events to our internal types
-                        if "follow" in event_type_raw:
-                            event_type = "follow"
-                        elif "subscription" in event_type_raw:
-                            event_type = "sub"
-                        elif "resubscription" in event_type_raw:
-                            event_type = "resub"
-                        else:
-                            event_type = event_type_raw
-
-                        # Try to find user name in common locations
-                        user_name = "Unknown"
-                        user_data = data.get("User", {})
-                        if isinstance(user_data, dict):
-                            user_name = user_data.get("Username", user_data.get("DisplayName", "Unknown"))
-                        elif isinstance(user_data, str):
-                            user_name = user_data
-                        
-                        if event_type in ["follow", "sub", "resub"]:
-                            self.log_signal.emit(f"Event Received: {event_type} from {user_name}")
-                            self.event_signal.emit(event_type, user_name)
-                        else:
-                            self.log_signal.emit(f"Ignored Event: {event_type_raw}")
-
-                    except asyncio.TimeoutError:
-                        continue
-                    except Exception as e:
-                        self.log_signal.emit(f"Message Error: {str(e)}")
-                        break
-        except Exception as e:
-            error_msg = str(e)
-            if "404" in error_msg:
-                self.log_signal.emit(f"Connection Error (404): The path '{self.path}' was not found. Please check if the Developer API is enabled in MixItUp and try a different path (like /api/v1/events).")
-            else:
-                self.log_signal.emit(f"MixItUp Connection Error: {error_msg}")
-        finally:
-            self.running = False
-            self.finished_signal.emit()
+    def run_server_sync(self):
+        asyncio.run(self.run_server())
 
     def stop(self):
         self.running = False
@@ -530,7 +477,7 @@ class MixItUpWorker(QObject):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("MixItUp v2 Event Trigger GUI")
+        self.setWindowTitle("RGB Studio - Webhook Event Trigger")
         self.resize(800, 600)
         
         self.sdk = None
@@ -545,22 +492,15 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central_widget)
         layout = QVBoxLayout(central_widget)
         
-        # MixItUp Connection Group
-        conn_group = QGroupBox("MixItUp v2 Connection")
-        conn_layout = QFormLayout()
-        self.host_input = QLineEdit("localhost")
-        self.port_input = QLineEdit("8911")
-        
-        conn_layout.addRow("IP Address / Host:", self.host_input)
-        conn_layout.addRow("Port:", self.port_input)
-        
-        self.path_input = QComboBox()
-        self.path_input.setEditable(True)
-        self.path_input.addItems(["/api/v2/events", "/api/v1/events", "/api/events", "/events"])
-        conn_layout.addRow("Base Path:", self.path_input)
-        
-        conn_group.setLayout(conn_layout)
-        layout.addWidget(conn_group)
+        # Webhook Server Group (Moved up as it's now primary)
+        webhook_group = QGroupBox("Webhook Server Configuration")
+        webhook_layout = QFormLayout()
+        self.webhook_host = QLineEdit("0.0.0.0")
+        self.webhook_port = QLineEdit("8080")
+        webhook_layout.addRow("Host (0.0.0.0 for all):", self.webhook_host)
+        webhook_layout.addRow("Port:", self.webhook_port)
+        webhook_group.setLayout(webhook_layout)
+        layout.addWidget(webhook_group)
 
         # iCUE SDK Group
         icue_group = QGroupBox("Corsair iCUE Integration")
@@ -578,7 +518,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(icue_group)
         
         # Actions Group
-        action_group = QGroupBox("Event Actions (Python Code)")
+        action_group = QGroupBox("Standard Event Actions (Python Code)")
         action_layout = QFormLayout()
         self.follow_action = QLineEdit("print(f'{user} followed!')")
         self.sub_action = QLineEdit("print(f'{user} subscribed!')")
@@ -592,9 +532,9 @@ class MainWindow(QMainWindow):
         
         # Control Buttons
         btn_layout = QHBoxLayout()
-        self.start_btn = QPushButton("Start Listening")
+        self.start_btn = QPushButton("Start Server")
         self.start_btn.clicked.connect(self.start_listening)
-        self.stop_btn = QPushButton("Stop Listening")
+        self.stop_btn = QPushButton("Stop Server")
         self.stop_btn.setEnabled(False)
         self.stop_btn.clicked.connect(self.stop_listening)
         self.anim_btn = QPushButton("Animation Editor")
@@ -604,18 +544,8 @@ class MainWindow(QMainWindow):
         btn_layout.addWidget(self.anim_btn)
         layout.addLayout(btn_layout)
         
-        # Webhook Server Group
-        webhook_group = QGroupBox("Webhook Server (for POST requests)")
-        webhook_layout = QFormLayout()
-        self.webhook_host = QLineEdit("0.0.0.0")
-        self.webhook_port = QLineEdit("8080")
-        webhook_layout.addRow("Host (0.0.0.0 for all):", self.webhook_host)
-        webhook_layout.addRow("Port:", self.webhook_port)
-        webhook_group.setLayout(webhook_layout)
-        layout.addWidget(webhook_group)
-
         # Custom Events Group
-        custom_group = QGroupBox("Custom Events (Webhook/WebSocket)")
+        custom_group = QGroupBox("Custom Events (URL: /event/{name})")
         custom_layout = QVBoxLayout()
         self.custom_events_list = QListWidget()
         self.custom_events = self.load_custom_events()
@@ -653,6 +583,7 @@ class MainWindow(QMainWindow):
         self.worker_thread = None
         self.animations = self.load_animations()
         self.active_players = []
+        self.active_executors = []
         
         self.keysim_window = KeySimWindow()
         self.keysim_btn = QPushButton("Show KeySim (Virtual Keyboard)")
@@ -763,68 +694,56 @@ class MainWindow(QMainWindow):
             code = self.custom_events.get(event_type)
         
         if code:
-            try:
-                # Provide 'user', 'sdk', 'kb' and 'play_anim' to the exec context
-                exec_globals = {
-                    "user": user_name,
-                    "sdk": self.sdk,
-                    "kb": self.keyboard_controller,
-                    "Key": Key if SDK_AVAILABLE else None,
-                    "play_anim": self.play_animation
-                }
-                exec(code, exec_globals)
-                self.log(f"Executed action for {event_type}")
-            except Exception as e:
-                self.log(f"Action Error ({event_type}): {str(e)}")
+            # Provide 'user', 'sdk', 'kb' and 'play_anim' to the exec context
+            exec_globals = {
+                "user": user_name,
+                "sdk": self.sdk,
+                "kb": self.keyboard_controller,
+                "Key": Key if SDK_AVAILABLE else None,
+                "play_anim": self.play_animation
+            }
+            
+            executor = CodeExecutor(code, exec_globals)
+            executor.log_signal.connect(lambda msg: self.log(f"[{event_type}] {msg}"))
+            executor.finished.connect(lambda: self.active_executors.remove(executor) if executor in self.active_executors else None)
+            self.active_executors.append(executor)
+            executor.start()
+            self.log(f"Starting execution for {event_type} event...")
 
     def start_listening(self):
-        host = self.host_input.text()
-        port = self.port_input.text()
-        path = self.path_input.currentText()
-        
-        if not host or not port or not path:
-            self.log("Error: Please fill in connection details.")
-            return
-        
-        self.start_btn.setEnabled(False)
-        self.stop_btn.setEnabled(True)
-        
-        self.worker = MixItUpWorker(host, port, path)
-        self.worker_thread = QThread()
-        self.worker.moveToThread(self.worker_thread)
-        
-        self.worker.log_signal.connect(self.log)
-        self.worker.event_signal.connect(self.handle_event)
-        self.worker.finished_signal.connect(self.on_worker_finished)
-        
-        self.worker_thread.started.connect(lambda: asyncio.run(self.worker.run_mixitup()))
-        self.worker_thread.start()
-
         # Webhook Server Start
         w_host = self.webhook_host.text()
-        w_port = int(self.webhook_port.text())
+        try:
+            w_port = int(self.webhook_port.text())
+        except ValueError:
+            self.log("Error: Invalid port number.")
+            return
+
+        self.start_btn.setEnabled(False)
+        self.stop_btn.setEnabled(True)
+
         self.webhook_worker = WebhookWorker(w_host, w_port)
         self.webhook_thread = QThread()
         self.webhook_worker.moveToThread(self.webhook_thread)
         self.webhook_worker.log_signal.connect(self.log)
         self.webhook_worker.event_signal.connect(self.handle_event)
-        self.webhook_thread.started.connect(lambda: asyncio.run(self.webhook_worker.run_server()))
+        self.webhook_worker.finished_signal.connect(self.on_worker_finished)
+        self.webhook_thread.started.connect(self.webhook_worker.run_server_sync)
         self.webhook_thread.start()
 
     def stop_listening(self):
-        if self.worker:
-            self.worker.stop()
         if hasattr(self, 'webhook_worker') and self.webhook_worker:
             self.webhook_worker.stop()
         self.stop_btn.setEnabled(False)
 
     def on_worker_finished(self):
-        self.log("Worker finished.")
+        self.log("Server stopped.")
         self.start_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
-        if self.worker_thread:
-            self.worker_thread.quit()
-            self.worker_thread.wait()
+        if hasattr(self, 'webhook_thread') and self.webhook_thread:
+            self.webhook_thread.quit()
+            self.webhook_thread.wait()
+            self.webhook_thread = None # Clean up
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
