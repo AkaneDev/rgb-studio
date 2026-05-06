@@ -1,6 +1,6 @@
-# MixItUp Event Trigger GUI
+# MixItUp v2 Event Trigger GUI
 
-A Python GUI application that allows you to trigger custom Python code when someone follows, subscribes, or resubscribes via MixItUp.
+A Python GUI application that allows you to trigger custom Python code when someone follows, subscribes, or resubscribes via the MixItUp v2 Developer API.
 
 ## Requirements
 
@@ -24,9 +24,9 @@ A Python GUI application that allows you to trigger custom Python code when some
    ```bash
    python main.py
    ```
-2. Ensure MixItUp is running and the Developer API is enabled.
+2. Ensure MixItUp is running and the Developer API (v2) is enabled.
 3. (Optional) Ensure iCUE is running and the SDK is enabled. Click **Connect iCUE** in the app.
-4. Enter the **IP Address** (usually `localhost`) and **Port** (default is `8911`) for MixItUp.
+4. Enter the **IP Address** (usually `localhost`) and **Port** (default is `8911`) for MixItUp. The app connects to the v2 API path `/api/v2/events`.
 5. Define the Python code you want to run for each event in the "Event Actions" section.
    - You can use the variable `{user}` in your code to refer to the user who triggered the event.
    - You can use `sdk` to control iCUE (e.g., `sdk.set_led_colors(...)`).
@@ -41,7 +41,7 @@ A Python GUI application that allows you to trigger custom Python code when some
 
 ## How it works
 
-- The app connects to MixItUp's **Developer API WebSocket** (`ws://host:port/api/events`).
+- The app connects to MixItUp's **Developer API v2 WebSocket** (`ws://host:port/api/v2/events`).
 - It listens for event notifications pushed by MixItUp.
 - When a Follow, Subscription, or Resubscription event occurs, the app executes the custom Python code provided in the GUI using `exec()`.
 - Animations are stored in `animations.json` and played in separate threads when triggered.

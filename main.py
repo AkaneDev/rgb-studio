@@ -387,8 +387,8 @@ class MixItUpWorker(QObject):
         self.running = False
 
     async def run_mixitup(self):
-        uri = f"ws://{self.host}:{self.port}/api/events"
-        self.log_signal.emit(f"Connecting to MixItUp at {uri}...")
+        uri = f"ws://{self.host}:{self.port}/api/v2/events"
+        self.log_signal.emit(f"Connecting to MixItUp v2 at {uri}...")
         try:
             async with websockets.connect(uri) as websocket:
                 self.log_signal.emit("Connected to MixItUp!")
@@ -443,7 +443,7 @@ class MixItUpWorker(QObject):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("MixItUp Event Trigger GUI")
+        self.setWindowTitle("MixItUp v2 Event Trigger GUI")
         self.resize(800, 600)
         
         self.sdk = None
@@ -459,13 +459,14 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(central_widget)
         
         # MixItUp Connection Group
-        conn_group = QGroupBox("MixItUp Connection")
+        conn_group = QGroupBox("MixItUp v2 Connection")
         conn_layout = QFormLayout()
         self.host_input = QLineEdit("localhost")
         self.port_input = QLineEdit("8911")
         
         conn_layout.addRow("IP Address / Host:", self.host_input)
         conn_layout.addRow("Port:", self.port_input)
+        conn_layout.addRow("Base Path:", QLabel("/api/v2/events"))
         conn_group.setLayout(conn_layout)
         layout.addWidget(conn_group)
 
