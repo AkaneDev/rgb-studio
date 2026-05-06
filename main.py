@@ -3,6 +3,8 @@ import asyncio
 import json
 import websockets
 import time
+import aiohttp
+from aiohttp import web
 try:
     from cuesdk import CorsairSessionState, CorsairDevicePropertyId, CorsairDataType, CorsairDeviceType, CorsairError, CorsairLedColor, CUESDK
     from pynput.keyboard import Controller, Key
@@ -375,6 +377,86 @@ class AnimationEditorDialog(QDialog):
         self.player = AnimationPlayer(self.animations[name], sdk=self.sdk, keysim=keysim)
         self.player.start()
 
+class WebhookWorker(QObject):
+    log_signal = pyqtSignal(str)
+    event_signal = pyqtSignal(str, str) # event_type, user_name
+    finished_signal = pyqtSignal()
+
+    def __init__(self, host="0.0.0.0", port=8080):
+        super().__init__()
+        self.host = host
+        self.port = port
+        self.running = False
+        self.runner = None
+
+    async def handle_post(self, request):
+        try:
+            # Try to get event_type from URL path first
+            event_type = request.match_info.get('event_type')
+            user_name = "Unknown"
+
+            # Check if it's a JSON request
+            if request.content_type == 'application/json':
+                try:
+                    data = await request.json()
+                    if not event_type:
+                        event_type = data.get("event")
+                    user_name = data.get("user", "Unknown")
+                except:
+                    pass
+            
+            # If still no event_type, check for form data
+            if not event_type and request.content_type == 'application/x-www-form-urlencoded':
+                try:
+                    data = await request.post()
+                    event_type = data.get("event")
+                    user_name = data.get("user", "Unknown")
+                except:
+                    pass
+
+            # If still no user_name, maybe it's just plain text in the body?
+            if user_name == "Unknown":
+                try:
+                    text = await request.text()
+                    if text:
+                        user_name = text.strip()
+                except:
+                    pass
+
+            if not event_type:
+                event_type = "custom_event"
+
+            self.log_signal.emit(f"Webhook Received: {event_type} from {user_name}")
+            self.event_signal.emit(event_type, user_name)
+            return web.Response(text="OK")
+        except Exception as e:
+            self.log_signal.emit(f"Webhook Error: {str(e)}")
+            return web.Response(text=f"Error: {str(e)}", status=400)
+
+    async def run_server(self):
+        self.running = True
+        app = web.Application()
+        # Support both root POST and specific event POST
+        app.router.add_post("/", self.handle_post)
+        app.router.add_post("/event/{event_type}", self.handle_post)
+        self.runner = web.AppRunner(app)
+        await self.runner.setup()
+        site = web.TCPSite(self.runner, self.host, self.port)
+        self.log_signal.emit(f"Starting Webhook Server on http://{self.host}:{self.port}/")
+        try:
+            await site.start()
+            while self.running:
+                await asyncio.sleep(1)
+        except Exception as e:
+            self.log_signal.emit(f"Server Error: {str(e)}")
+        finally:
+            await self.runner.cleanup()
+            self.running = False
+            self.finished_signal.emit()
+
+    def stop(self):
+        self.running = False
+
 class MixItUpWorker(QObject):
     log_signal = pyqtSignal(str)
     event_signal = pyqtSignal(str, str) # event_type, user_name
@@ -522,6 +604,45 @@ class MainWindow(QMainWindow):
         btn_layout.addWidget(self.anim_btn)
         layout.addLayout(btn_layout)
         
+        # Webhook Server Group
+        webhook_group = QGroupBox("Webhook Server (for POST requests)")
+        webhook_layout = QFormLayout()
+        self.webhook_host = QLineEdit("0.0.0.0")
+        self.webhook_port = QLineEdit("8080")
+        webhook_layout.addRow("Host (0.0.0.0 for all):", self.webhook_host)
+        webhook_layout.addRow("Port:", self.webhook_port)
+        webhook_group.setLayout(webhook_layout)
+        layout.addWidget(webhook_group)
+
+        # Custom Events Group
+        custom_group = QGroupBox("Custom Events (Webhook/WebSocket)")
+        custom_layout = QVBoxLayout()
+        self.custom_events_list = QListWidget()
+        self.custom_events = self.load_custom_events()
+        for ev_name in self.custom_events:
+            self.custom_events_list.addItem(ev_name)
+        self.custom_events_list.currentRowChanged.connect(self.load_custom_event_code)
+        
+        custom_layout.addWidget(QLabel("Event Name:"))
+        self.custom_event_name = QLineEdit()
+        custom_layout.addWidget(self.custom_event_name)
+        custom_layout.addWidget(QLabel("Action (Python Code):"))
+        self.custom_event_code = QTextEdit()
+        self.custom_event_code.setPlaceholderText("print(f'Custom event {user}!')")
+        custom_layout.addWidget(self.custom_event_code)
+        
+        custom_btn_layout = QHBoxLayout()
+        save_custom_btn = QPushButton("Save/Add Custom Event")
+        save_custom_btn.clicked.connect(self.save_custom_event)
+        del_custom_btn = QPushButton("Delete Custom Event")
+        del_custom_btn.clicked.connect(self.delete_custom_event)
+        custom_btn_layout.addWidget(save_custom_btn)
+        custom_btn_layout.addWidget(del_custom_btn)
+        custom_layout.addLayout(custom_btn_layout)
+        
+        custom_group.setLayout(custom_layout)
+        layout.addWidget(custom_group)
+        
         # Log Window
         self.log_window = QTextEdit()
         self.log_window.setReadOnly(True)
@@ -589,13 +710,58 @@ class MainWindow(QMainWindow):
     def log(self, message):
         self.log_window.append(message)
 
+    def load_custom_events(self):
+        try:
+            with open("custom_events.json", "r") as f:
+                return json.load(f)
+        except:
+            return {}
+
+    def save_custom_event(self):
+        name = self.custom_event_name.text().strip()
+        code = self.custom_event_code.toPlainText()
+        if name:
+            self.custom_events[name] = code
+            if not self.custom_events_list.findItems(name, Qt.MatchFlag.MatchExactly):
+                self.custom_events_list.addItem(name)
+            try:
+                with open("custom_events.json", "w") as f:
+                    json.dump(self.custom_events, f)
+                self.log(f"Saved custom event: {name}")
+            except Exception as e:
+                self.log(f"Error saving custom events: {e}")
+
+    def delete_custom_event(self):
+        curr = self.custom_events_list.currentItem()
+        if curr:
+            name = curr.text()
+            if name in self.custom_events:
+                del self.custom_events[name]
+                self.custom_events_list.takeItem(self.custom_events_list.row(curr))
+                try:
+                    with open("custom_events.json", "w") as f:
+                        json.dump(self.custom_events, f)
+                    self.log(f"Deleted custom event: {name}")
+                except Exception as e:
+                    self.log(f"Error saving custom events: {e}")
+
+    def load_custom_event_code(self, row):
+        if row < 0: return
+        name = self.custom_events_list.item(row).text()
+        self.custom_event_name.setText(name)
+        self.custom_event_code.setText(self.custom_events.get(name, ""))
+
     def handle_event(self, event_type, user_name):
         action_map = {
             "follow": self.follow_action.text(),
             "sub": self.sub_action.text(),
             "resub": self.resub_action.text()
         }
+        # Check standard events first, then custom events
         code = action_map.get(event_type)
+        if not code:
+            code = self.custom_events.get(event_type)
+        
         if code:
             try:
                 # Provide 'user', 'sdk', 'kb' and 'play_anim' to the exec context
@@ -634,9 +800,22 @@ class MainWindow(QMainWindow):
         self.worker_thread.started.connect(lambda: asyncio.run(self.worker.run_mixitup()))
         self.worker_thread.start()
 
+        # Webhook Server Start
+        w_host = self.webhook_host.text()
+        w_port = int(self.webhook_port.text())
+        self.webhook_worker = WebhookWorker(w_host, w_port)
+        self.webhook_thread = QThread()
+        self.webhook_worker.moveToThread(self.webhook_thread)
+        self.webhook_worker.log_signal.connect(self.log)
+        self.webhook_worker.event_signal.connect(self.handle_event)
+        self.webhook_thread.started.connect(lambda: asyncio.run(self.webhook_worker.run_server()))
+        self.webhook_thread.start()
+
     def stop_listening(self):
         if self.worker:
             self.worker.stop()
+        if hasattr(self, 'webhook_worker') and self.webhook_worker:
+            self.webhook_worker.stop()
         self.stop_btn.setEnabled(False)
 
     def on_worker_finished(self):
