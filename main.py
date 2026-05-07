@@ -6,7 +6,6 @@ import aiohttp
 from aiohttp import web
 try:
     from cuesdk import CorsairSessionState, CorsairDevicePropertyId, CorsairDataType, CorsairDeviceType, CorsairError, CorsairLedColor, CUESDK
-    from pynput.keyboard import Controller, Key
     SDK_AVAILABLE = True
 except ImportError:
     SDK_AVAILABLE = False
@@ -481,12 +480,6 @@ class MainWindow(QMainWindow):
         self.resize(800, 600)
         
         self.sdk = None
-        self.keyboard_controller = None
-        if SDK_AVAILABLE:
-            try:
-                self.keyboard_controller = Controller()
-            except Exception as e:
-                print(f"Failed to initialize pynput: {e}")
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -520,9 +513,9 @@ class MainWindow(QMainWindow):
         # Actions Group
         action_group = QGroupBox("Standard Event Actions (Python Code)")
         action_layout = QFormLayout()
-        self.follow_action = QLineEdit("print(f'{user} followed!')")
-        self.sub_action = QLineEdit("print(f'{user} subscribed!')")
-        self.resub_action = QLineEdit("print(f'{user} resubscribed!')")
+        self.follow_action = QLineEdit("play_anim('test'); print(f'{user} followed!')")
+        self.sub_action = QLineEdit("play_anim('test'); print(f'{user} subscribed!')")
+        self.resub_action = QLineEdit("play_anim('test'); print(f'{user} resubscribed!')")
         
         action_layout.addRow("Follow Action:", self.follow_action)
         action_layout.addRow("Sub Action:", self.sub_action)
@@ -694,12 +687,10 @@ class MainWindow(QMainWindow):
             code = self.custom_events.get(event_type)
         
         if code:
-            # Provide 'user', 'sdk', 'kb' and 'play_anim' to the exec context
+            # Provide 'user', 'sdk' and 'play_anim' to the exec context
             exec_globals = {
                 "user": user_name,
                 "sdk": self.sdk,
-                "kb": self.keyboard_controller,
-                "Key": Key if SDK_AVAILABLE else None,
                 "play_anim": self.play_animation
             }
             

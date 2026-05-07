@@ -16,26 +16,25 @@ def test_exec_context():
     
     # Manually setup what we want to test
     window.sdk = MagicMock()
-    window.keyboard_controller = MagicMock()
+    window.play_animation = MagicMock()
     
     # Define a test action that uses all injected variables
-    test_code = "print(f'Testing {user}'); kb.type('hello'); sdk.set_led_colors([])"
+    test_code = "print(f'Testing {user}'); play_anim('test'); sdk.set_led_colors([])"
     
     try:
         # We need to reach into handle_event logic
         exec_globals = {
             "user": "TestUser",
             "sdk": window.sdk,
-            "kb": window.keyboard_controller,
-            "Key": MagicMock()
+            "play_anim": window.play_animation
         }
         exec(test_code, exec_globals)
         print("Success: exec() context contains all expected variables.")
         
         # Verify calls
-        window.keyboard_controller.type.assert_called_with('hello')
+        window.play_animation.assert_called_with('test')
         window.sdk.set_led_colors.assert_called_with([])
-        print("Success: keyboard and sdk methods were called.")
+        print("Success: play_anim and sdk methods were called.")
         
     except Exception as e:
         print(f"Failed: {e}")
